@@ -1,5 +1,5 @@
 {
-  "name": "cpp-algorithm-visualizer",
+  "name": "algalens",
   "private": true,
   "version": "0.2.0",
   "description": "Paste C++ algorithm code, press Run, and step through an animated visualization of variables and arrays. 100% in-browser.",

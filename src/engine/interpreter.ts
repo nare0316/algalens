@@ -1,3 +1,4 @@
+import { parseExpression } from './parser';
 import {
   AccessKind,
   ArrayCell,
@@ -191,6 +192,7 @@ export class Interpreter {
   private precision = 6;
   private cout = new Stream('cout');
   private cin = new Stream('cin');
+  private returnValue: string | undefined;
 
   constructor(private prog: Program, private opts: RunOptions) {
     this.funcs = prog.funcs;
@@ -201,6 +203,7 @@ export class Interpreter {
     this.startTime = Date.now();
     const finish = (status: TraceResult['status'], error?: TraceResult['error']): TraceResult => ({
       steps: this.steps,
+      returnValue: this.returnValue,
       status,
       error,
       elapsedMs: Date.now() - this.startTime,
@@ -209,12 +212,36 @@ export class Interpreter {
     try {
       for (const g of this.prog.globals) this.execStmt(g);
       const mains = this.funcs.get('main');
-      if (!mains) throw new CompileError("undefined reference to 'main': your program needs an int main() function", 1);
-      const main = mains[0];
+      if (mains) {
+        const main = mains[0];
+        this.silent = false;
+        this.curLine = main.line;
+        this.emitStep(main.line, 'running', 'Program start');
+        this.callFunction(main, [], main.line);
+        return finish('finished');
+      }
+
+      // No main(): run the function call the user typed (LeetCode / GfG style).
+      const callText = (this.opts.entryCall ?? '').trim();
+      if (!callText) {
+        throw new CompileError('No main() found. Enter the function call to run, e.g. myFunction({1, 2, 3}, 5)', 0);
+      }
+      let expr: Expr;
+      try {
+        expr = parseExpression(callText);
+      } catch (e) {
+        if (e instanceof CompileError) throw new CompileError(`Function call: ${e.message}`, 0);
+        throw e;
+      }
+      const target = expr.k === 'call' ? this.funcs.get(expr.name) : undefined;
+      if (expr.k !== 'call' || !target) {
+        const names = [...this.funcs.keys()].join(', ');
+        throw new CompileError(`The function call must call one of your functions (${names || 'none defined'}).`, 0);
+      }
       this.silent = false;
-      this.curLine = main.line;
-      this.emitStep(main.line, 'running', 'Program start');
-      this.callFunction(main, [], main.line);
+      this.curLine = target[0].line;
+      this.emitStep(target[0].line, 'running', `Calling ${callText}`);
+      this.ev(expr);
       return finish('finished');
     } catch (e) {
       if (e instanceof LimitError) {
@@ -924,8 +951,14 @@ export class Interpreter {
     if (this.frames.length >= MAX_DEPTH) {
       throw new RuntimeError(`stack overflow: recursion deeper than ${MAX_DEPTH} calls`, line);
     }
+    const isEntry = this.frames.length === 0;
     const cells: Cell[] = fn.params.map((p, i) => {
       const a = args[i];
+      if (a.k === 'initlist') {
+        if (p.type.name === 'vector') return { type: p.type, value: this.buildVec(p.type, a.items, line) };
+        if (p.type.name === 'array') return { type: p.type, value: this.makeArray(p.type.elem!, [a.items.length], a, line) };
+        throw new RuntimeError('an initializer list cannot be passed to this parameter', line);
+      }
       if (p.ref && !p.isArray) {
         const lv = this.lvalue(a);
         return { type: p.type, get value() { return lv.get(); }, set value(v: Value) { lv.set(v); } } as Cell;
@@ -949,13 +982,22 @@ export class Interpreter {
     } else {
       sig = this.execStmt(fn.body);
     }
-    // Final step is recorded while main's variables are still alive so the end state stays visible.
-    if (fn.name === 'main') this.emitStep(fn.endLine, 'finished', 'Program finished');
+    let result: Value;
+    if (fn.ret.name === 'void') result = undefined;
+    else if (sig && sig.t === 'return' && sig.v !== undefined) result = this.coerce(fn.ret, sig.v, line);
+    else result = fn.name === 'main' ? 0 : this.defaultValue(fn.ret);
+    // The final step is recorded while the entry function's variables are still alive.
+    if (isEntry) {
+      if (fn.name === 'main') {
+        this.emitStep(fn.endLine, 'finished', 'Program finished');
+      } else {
+        this.returnValue = result === undefined ? undefined : valueToDisplay(result);
+        this.emitStep(fn.endLine, 'finished', this.returnValue !== undefined ? `Returned ${this.returnValue}` : 'Function finished');
+      }
+    }
     this.frames.pop();
     this.curLine = line;
-    if (fn.ret.name === 'void') return undefined;
-    if (sig && sig.t === 'return' && sig.v !== undefined) return this.coerce(fn.ret, sig.v, line);
-    return fn.name === 'main' ? 0 : this.defaultValue(fn.ret);
+    return result;
   }
 
   private evCall(e: Extract<Expr, { k: 'call' }>): Value {

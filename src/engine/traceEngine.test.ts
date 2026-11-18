@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { generateTrace } from './traceEngine';
+import { analyzeProgram, generateTrace, suggestCall } from './traceEngine';
 import { SAMPLES } from './samples';
 import type { ArrayVar, ScalarVar } from './types';
 
@@ -18,11 +18,12 @@ describe('sample programs', () => {
     'fibonacci-dp': 'fib(10) = 55\n',
     'matrix-2d': 'Sum = 60\n',
     factorial: '5! = 120\n',
+    'max-subarray': '',
   };
 
   for (const s of SAMPLES) {
     it(`${s.name} produces the correct output and a valid trace`, () => {
-      const t = generateTrace(s.code, { stdin: s.stdin });
+      const t = generateTrace(s.code, { stdin: s.stdin, entryCall: s.entryCall });
       expect(t.error).toBeUndefined();
       expect(t.status).toBe('finished');
       expect(t.steps.length).toBeGreaterThan(3);
@@ -163,7 +164,7 @@ describe('errors and limits', () => {
     expect(t.error?.message).toContain('not supported');
   });
   it('is fast for typical programs', () => {
-    const s = SAMPLES[0];
+    const s = SAMPLES.find((x) => x.id === 'bubble-sort')!;
     const t = generateTrace(s.code);
     expect(t.elapsedMs).toBeLessThan(2000);
   });
@@ -172,5 +173,70 @@ describe('errors and limits', () => {
     const stepsWithX = t.steps.filter((s) => s.variables.some((v) => v.name === 'x'));
     const v = (i: number) => stepsWithX[i].variables.find((x) => x.name === 'x') as ScalarVar;
     expect(v(1).changed).toBe(true);
+  });
+});
+
+describe('function-only snippets (no main)', () => {
+  const kadane = `int maxSubarraySum(vector<int> &arr) {
+    // Code here
+    int max_array = INT_MIN;
+    int sum = 0;
+
+    for (int num : arr) {
+        if (sum < 0) {
+            sum = 0;
+        }
+
+        sum += num;
+        max_array = max(sum, max_array);
+    }
+    return max_array;
+}`;
+
+  it('runs a bare function with no includes, no using namespace and no main', () => {
+    const t = generateTrace(kadane, { entryCall: 'maxSubarraySum({-2, 1, -3, 4, -1, 2, 1, -5, 4})' });
+    expect(t.error).toBeUndefined();
+    expect(t.status).toBe('finished');
+    expect(t.returnValue).toBe('6');
+    const fin = last(t.steps);
+    expect(fin.status).toBe('finished');
+    expect(fin.message).toBe('Returned 6');
+    expect(fin.variables.some((v) => v.name === 'max_array')).toBe(true);
+    expect(fin.variables.find((v) => v.name === 'arr')?.kind).toBe('array');
+  });
+
+  it('handles all-negative input and a single element', () => {
+    expect(generateTrace(kadane, { entryCall: 'maxSubarraySum({-3, -1, -2})' }).returnValue).toBe('-1');
+    expect(generateTrace(kadane, { entryCall: 'maxSubarraySum({7})' }).returnValue).toBe('7');
+  });
+
+  it('suggests a runnable default call', () => {
+    const info = analyzeProgram(kadane)!;
+    expect(info.hasMain).toBe(false);
+    expect(info.functions.map((f) => f.name)).toEqual(['maxSubarraySum']);
+    const call = suggestCall(info.functions[0]);
+    expect(generateTrace(kadane, { entryCall: call }).returnValue).toBe('6');
+  });
+
+  it('works with scalar, string and array parameters and recursion', () => {
+    const code = `int fib(int n) { if (n < 2) return n; return fib(n - 1) + fib(n - 2); }
+int sum(int a[], int n) { int s = 0; for (int i = 0; i < n; i++) s += a[i]; return s; }
+string rev(string s) { string r = ""; for (int i = s.size() - 1; i >= 0; i--) r += s[i]; return r; }`;
+    expect(generateTrace(code, { entryCall: 'fib(10)' }).returnValue).toBe('55');
+    expect(generateTrace(code, { entryCall: 'sum({1, 2, 3, 4}, 4)' }).returnValue).toBe('10');
+    expect(generateTrace(code, { entryCall: 'rev("abc")' }).returnValue).toBe('"cba"');
+  });
+
+  it('explains what is missing', () => {
+    expect(generateTrace(kadane).error?.message).toContain('No main()');
+    expect(generateTrace(kadane, { entryCall: 'nope(1)' }).error?.message).toContain('must call one of your functions');
+    expect(generateTrace(kadane, { entryCall: 'maxSubarraySum({1,' }).error?.kind).toBe('compile');
+    expect(generateTrace(kadane, { entryCall: 'maxSubarraySum()' }).error).toBeDefined();
+  });
+
+  it('still prefers main() when it exists', () => {
+    const t = generateTrace(wrap('cout << 1;'), { entryCall: 'foo()' });
+    expect(t.status).toBe('finished');
+    expect(t.returnValue).toBeUndefined();
   });
 });

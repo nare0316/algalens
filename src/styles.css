@@ -249,3 +249,17 @@ tr.row-changed td.value { color: #7ee787; font-weight: 600; }
   .bar, .bar-group, .cell { transition: none; }
   .caret { animation: none; }
 }
+
+/* ───── function-call input & return value ───── */
+.call-input {
+  width: 100%; background: #0b0f14; color: var(--text); border: 1px solid var(--border); border-radius: 8px;
+  padding: 9px 11px; font-size: 13px;
+}
+.call-help { margin-top: 6px; }
+.call-help code, .returned code { font-family: var(--mono); background: var(--bg-soft); border-radius: 4px; padding: 0 5px; }
+.returned {
+  margin: 10px 0 0; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 8px;
+  background: rgba(63, 185, 80, 0.12); border: 1px solid rgba(63, 185, 80, 0.45); font-size: 13px;
+}
+.returned span { color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; font-size: 11px; }
+.returned code { color: #7ee787; font-weight: 700; font-size: 14px; background: transparent; padding: 0; }

@@ -4,9 +4,34 @@ export interface Sample {
   description: string;
   code: string;
   stdin: string;
+  /** for function-only snippets (no main) */
+  entryCall?: string;
 }
 
 export const SAMPLES: Sample[] = [
+  {
+    id: 'max-subarray',
+    name: 'Max Subarray (function only)',
+    description: "Kadane's algorithm as a bare function: no main, no includes.",
+    stdin: '',
+    entryCall: 'maxSubarraySum({-2, 1, -3, 4, -1, 2, 1, -5, 4})',
+    code: `int maxSubarraySum(vector<int> &arr) {
+    // Code here
+    int max_array = INT_MIN;
+    int sum = 0;
+
+    for (int num : arr) {
+        if (sum < 0) {
+            sum = 0;
+        }
+
+        sum += num;
+        max_array = max(sum, max_array);
+    }
+    return max_array;
+}
+`,
+  },
   {
     id: 'bubble-sort',
     name: 'Bubble Sort',
@@ -276,4 +301,4 @@ int main() {
   },
 ];
 
-export const DEFAULT_SAMPLE = SAMPLES[0];
+export const DEFAULT_SAMPLE = SAMPLES.find((s) => s.id === 'bubble-sort') ?? SAMPLES[0];

@@ -1,4 +1,4 @@
-# C++ Algorithm Visualizer (MVP v0.2)
+# Algalens: C++ Algorithm Visualizer (MVP v0.2)
 
 Paste C++ algorithm code, press **Run**, and step through an animated visualization of variables, arrays and
 output. Everything runs in the browser as static files: no backend, no accounts, no hosting cost.
@@ -8,7 +8,7 @@ output. Everything runs in the browser as static files: no backend, no accounts,
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # engine tests (35 cases)
+npm test           # engine tests (42 cases)
 npm run build      # type-check + production build into dist/
 npm run preview    # serve dist/ locally
 ```
@@ -39,6 +39,21 @@ interpreter for a practical C++ subset (`src/engine/`):
 Safety limits: 10,000 steps (selectable up to 100,000), 5 s wall-clock, 200 call depth, 200k array elements,
 200k characters of output.
 
+## Function-only code (no `main`)
+
+You can paste just a function, with no `#include`, `using namespace std` or `main()`. A **Function call** box appears
+under the editor, pre-filled with an example call; edit it and press Run:
+
+```cpp
+int maxSubarraySum(vector<int> &arr) { ... }
+```
+```
+maxSubarraySum({-2, 1, -3, 4, -1, 2, 1, -5, 4})      // -> returned 6
+```
+
+Pass vectors / arrays as `{1, 2, 3}` (nested `{{1, 2}, {3, 4}}`), strings as `"text"`. The return value is shown
+under the console. If the code has a `main()`, the call box is hidden and `main()` runs as usual.
+
 ## Supported C++ subset
 
 - **Types:** `int`, `long long`, `unsigned`, `char`, `bool`, `float`, `double`, `string`, `vector<T>` (nested too),
@@ -59,3 +74,10 @@ undefined behaviour.
 ## Keyboard shortcuts
 
 `Space` play/pause, `←` / `→` previous/next step, `Home` reset (when focus is not in the editor).
+
+## Deploy to Cloudflare Pages
+
+1. Push the repo to GitHub.
+2. Cloudflare dashboard → **Workers & Pages → Create → Pages → Connect to Git**, pick the repo.
+3. Build command `npm run build`, build output directory `dist`, (Node version is read from `.nvmrc`).
+4. Save and Deploy. Every push to `main` redeploys automatically.

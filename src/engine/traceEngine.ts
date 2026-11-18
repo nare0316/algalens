@@ -5,9 +5,13 @@ import {
   CompileError,
   DEFAULT_MAX_MILLIS,
   DEFAULT_MAX_STEPS,
+  FunctionInfo,
+  ProgramInfo,
   RunOptions,
   Step,
   TraceResult,
+  Type,
+  typeToString,
 } from './types';
 
 /** Marks which scalars / array cells changed compared with the previous step (same call frame). */
@@ -44,6 +48,7 @@ function markChanges(steps: Step[]): void {
 export function generateTrace(source: string, options: Partial<RunOptions> = {}): TraceResult {
   const opts: RunOptions = {
     stdin: options.stdin ?? '',
+    entryCall: options.entryCall,
     maxSteps: options.maxSteps ?? DEFAULT_MAX_STEPS,
     maxMillis: options.maxMillis ?? DEFAULT_MAX_MILLIS,
   };
@@ -64,4 +69,40 @@ export function generateTrace(source: string, options: Partial<RunOptions> = {})
       elapsedMs: Date.now() - t0,
     };
   }
+}
+
+/** Lightweight static look at the code: does it have main(), and which functions does it define? */
+export function analyzeProgram(source: string): ProgramInfo | null {
+  try {
+    const prog = parse(source);
+    const functions: FunctionInfo[] = [...prog.funcs.values()]
+      .flat()
+      .filter((f) => f.name !== 'main')
+      .map((f) => ({ name: f.name, ret: typeToString(f.ret), params: f.params.map((p) => ({ name: p.name, type: p.type })) }));
+    return { hasMain: prog.funcs.has('main'), functions };
+  } catch {
+    return null;
+  }
+}
+
+function sampleArg(t: Type): string {
+  switch (t.name) {
+    case 'int': case 'long': case 'unsigned': return '5';
+    case 'float': case 'double': return '2.5';
+    case 'char': return "'a'";
+    case 'bool': return 'true';
+    case 'string': return '"hello"';
+    case 'vector': case 'array': {
+      const e = t.elem;
+      if (e && (e.name === 'vector' || e.name === 'array')) return '{{1, 2, 3}, {4, 5, 6}}';
+      if (e && e.name === 'string') return '{"a", "bc", "def"}';
+      return '{-2, 1, -3, 4, -1, 2, 1, -5, 4}';
+    }
+    default: return '0';
+  }
+}
+
+/** A runnable example call for a function, e.g. `maxSubarraySum({-2, 1, -3, 4, -1, 2, 1, -5, 4})`. */
+export function suggestCall(fn: FunctionInfo): string {
+  return `${fn.name}(${fn.params.map((p) => sampleArg(p.type)).join(', ')})`;
 }

@@ -6,6 +6,7 @@ import VariablesTable from './components/VariablesTable';
 import ConsoleOutput from './components/ConsoleOutput';
 import ErrorBanner from './components/ErrorBanner';
 import { DEFAULT_SAMPLE, SAMPLES } from './engine/samples';
+import { analyzeProgram, suggestCall } from './engine/traceEngine';
 import { ArrayVar, DEFAULT_MAX_MILLIS, DEFAULT_MAX_STEPS, TraceResult } from './engine/types';
 import { TraceRunner } from './runner';
 
@@ -15,6 +16,8 @@ export default function App() {
   const [sampleId, setSampleId] = useState(DEFAULT_SAMPLE.id);
   const [code, setCode] = useState(DEFAULT_SAMPLE.code);
   const [stdin, setStdin] = useState(DEFAULT_SAMPLE.stdin);
+  const [entryCall, setEntryCall] = useState(DEFAULT_SAMPLE.entryCall ?? '');
+  const [ranEntry, setRanEntry] = useState('');
   const [trace, setTrace] = useState<TraceResult | null>(null);
   const [ranCode, setRanCode] = useState<string | null>(null);
   const [index, setIndex] = useState(0);
@@ -30,7 +33,20 @@ export default function App() {
 
   const total = trace?.steps.length ?? 0;
   const step = trace && total > 0 ? trace.steps[Math.min(index, total - 1)] : null;
-  const stale = ranCode !== null && ranCode !== code;
+  // Function-only code (no main): the user supplies the call to run.
+  const info = useMemo(() => analyzeProgram(code), [code]);
+  const needsCall = !!info && !info.hasMain && info.functions.length > 0;
+  const signature = needsCall ? info!.functions.map((f) => `${f.name}(${f.params.map((p) => p.name).join(',')})`).join('|') : '';
+  const lastSignature = useRef(signature);
+  useEffect(() => {
+    if (signature === lastSignature.current) return;
+    lastSignature.current = signature;
+    if (!needsCall) return;
+    const target = info!.functions[info!.functions.length - 1];
+    setEntryCall(suggestCall(target));
+  }, [signature, needsCall, info]);
+
+  const stale = ranCode !== null && (ranCode !== code || (needsCall && ranEntry !== entryCall));
 
   // ───── running ─────
   const run = useCallback(
@@ -39,15 +55,21 @@ export default function App() {
       setPlaying(false);
       setErrorDismissed(false);
       const started = performance.now();
-      const result = await runner.current!.run(code, { stdin, maxSteps: limit, maxMillis: DEFAULT_MAX_MILLIS });
+      const result = await runner.current!.run(code, {
+        stdin,
+        entryCall: needsCall ? entryCall : undefined,
+        maxSteps: limit,
+        maxMillis: DEFAULT_MAX_MILLIS,
+      });
       setTrace(result);
       setRanCode(code);
+      setRanEntry(entryCall);
       setIndex(0);
       setRunning(false);
       // eslint-disable-next-line no-console
       console.debug(`trace: ${result.steps.length} steps in ${Math.round(performance.now() - started)}ms`);
     },
-    [code, stdin, maxSteps],
+    [code, stdin, maxSteps, entryCall, needsCall],
   );
 
   const raiseLimit = useCallback(() => {
@@ -104,6 +126,8 @@ export default function App() {
     setSampleId(id);
     setCode(s.code);
     setStdin(s.stdin);
+    lastSignature.current = '';
+    setEntryCall(s.entryCall ?? '');
     setTrace(null);
     setRanCode(null);
     setIndex(0);
@@ -134,8 +158,8 @@ export default function App() {
             <i /><i /><i /><i />
           </span>
           <div>
-            <h1>C++ Algorithm Visualizer</h1>
-            <p>Paste code · press Run · step through it. Runs 100% in your browser.</p>
+            <h1>Algalens</h1>
+            <p>See inside your C++ algorithms: paste code, press Run, step through it. 100% in your browser.</p>
           </div>
         </div>
         <div className="topbar-actions">
@@ -184,6 +208,27 @@ export default function App() {
               errorLine={errorLine}
             />
           </div>
+          {needsCall && (
+            <div className="card call-card">
+              <div className="card-head">
+                <h2>Function call</h2>
+                <span className="hint">no main() found: this call is what Run executes</span>
+              </div>
+              <input
+                className="call-input mono"
+                value={entryCall}
+                onChange={(e) => setEntryCall(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') void run(); }}
+                spellCheck={false}
+                placeholder="myFunction({1, 2, 3}, 5)"
+                aria-label="Function call to run"
+              />
+              <p className="hint call-help">
+                Pass vectors / arrays as <code>{'{1, 2, 3}'}</code>, strings as <code>"text"</code>. Defined:{' '}
+                {info!.functions.map((f) => f.name).join(', ')}
+              </p>
+            </div>
+          )}
           <div className="card stdin-card">
             <div className="card-head">
               <h2>Input (stdin)</h2>
@@ -240,7 +285,7 @@ export default function App() {
             <>
               <div className="step-caption">
                 <span className="line-chip">line {step.line}</span>
-                <span className="mono">{step.func}()</span>
+                <span className="mono">{step.func === 'global' ? 'entry' : `${step.func}()`}</span>
                 {step.message && <span className="muted">— {step.message}</span>}
                 {stale && <span className="tag tag-warn">stale</span>}
               </div>
@@ -259,7 +304,7 @@ export default function App() {
 
               <div className="two-col">
                 <VariablesTable variables={step.variables} func={step.func} stack={step.stack} />
-                <ConsoleOutput text={step.stdout} finished={step.status === 'finished'} />
+                <ConsoleOutput text={step.stdout} finished={step.status === 'finished'} returned={step.status === 'finished' ? trace.returnValue : undefined} />
               </div>
             </>
           )}

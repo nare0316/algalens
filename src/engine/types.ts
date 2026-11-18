@@ -191,12 +191,16 @@ export interface TraceError {
 
 export interface TraceResult {
   steps: Step[];
+  /** value returned by the entry function when the program has no main() */
+  returnValue?: string;
   status: 'finished' | 'error' | 'limit';
   error?: TraceError;
   elapsedMs: number;
 }
 
 export interface RunOptions {
+  /** e.g. `maxSubarraySum({1, -2, 3})`; used when the code has no main() */
+  entryCall?: string;
   stdin: string;
   maxSteps: number;
   maxMillis: number;
@@ -204,3 +208,15 @@ export interface RunOptions {
 
 export const DEFAULT_MAX_STEPS = 10_000;
 export const DEFAULT_MAX_MILLIS = 5_000;
+
+export interface FunctionInfo {
+  name: string;
+  ret: string;
+  params: { name: string; type: Type }[];
+}
+
+export interface ProgramInfo {
+  hasMain: boolean;
+  /** user functions except main, in definition order */
+  functions: FunctionInfo[];
+}

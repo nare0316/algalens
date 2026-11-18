@@ -148,6 +148,12 @@ class Parser {
   }
 
   // ───── program ─────
+  parseEntryExpression(): Expr {
+    const e = this.parseExpr();
+    if (this.peek().kind !== 'eof') this.err(`unexpected '${this.peek().text}' after the function call`);
+    return e;
+  }
+
   parseProgram(): Program {
     const funcs = new Map<string, FuncDecl[]>();
     const globals: Stmt[] = [];
@@ -298,7 +304,7 @@ class Parser {
     const args: Expr[] = [];
     while (!this.isOp(')')) {
       if (args.length > 0) this.expectOp(',', 'between arguments');
-      args.push(this.parseAssign());
+      args.push(this.parseInitializer());
       if (this.peek().kind === 'eof') this.err("expected ')'");
     }
     this.expectOp(')');
@@ -611,4 +617,9 @@ export function parse(source: string): Program {
   const toks = lex(source);
   const parser = new Parser(toks);
   return parser.parseProgram();
+}
+
+/** Parses a single expression such as `solve({1, 2, 3}, 5)` (used for the entry call when there is no main). */
+export function parseExpression(source: string): Expr {
+  return new Parser(lex(source)).parseEntryExpression();
 }
